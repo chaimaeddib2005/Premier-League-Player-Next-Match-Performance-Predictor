@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Next-Match Predictor — Premier League</title>
+<style>
+  :root{
+    --pitch: #0B3D2E;
+    --pitch-dark: #082B20;
+    --chalk: #F5F3EC;
+    --amber: #E4B343;
+    --amber-glow: #F7D77A;
+    --navy: #16233D;
+    --turf-line: #3F6355;
+    --muted: #B9C4BE;
+    --red: #C1443D;
+    --pos-gk: #C9A227;
+    --pos-def: #3E7CB1;
+    --pos-mid: #4E9E63;
+    --pos-fwd: #C1443D;
+    --radius: 10px;
+    --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --display: Impact, "Arial Narrow Bold", "Helvetica Neue", sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:
+      radial-gradient(1200px 500px at 50% -10%, rgba(228,179,67,0.08), transparent 60%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 120px),
+      var(--pitch);
+    color: var(--chalk);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding: 0 0 48px 0;
+  }
+  a{color:inherit;}
+
+  .header{
+    padding: 28px 24px 18px 24px;
+    border-bottom: 2px solid var(--turf-line);
+    display:flex; flex-direction:column; gap:6px;
+  }
+  .eyebrow{
+    font-family: var(--mono);
+    letter-spacing: 3px;
+    font-size: 11px;
+    color: var(--amber);
+    text-transform: uppercase;
+  }
+  h1{
+    font-family: var(--display);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-size: clamp(28px, 5vw, 44px);
+    margin: 0;
+    line-height: 1;
+  }
+  .subhead{
+    color: var(--muted);
+    font-size: 14px;
+    max-width: 720px;
+  }
+  .subhead b{color: var(--chalk);}
+
+  .controls{
+    display:flex; flex-wrap:wrap; gap:10px; align-items:center;
+    padding: 16px 24px; border-bottom: 1px solid var(--turf-line);
+  }
+  input[type="search"]{
+    background: var(--navy);
+    border: 1px solid var(--turf-line);
+    color: var(--chalk);
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    font-size: 14px;
+    font-family: var(--sans);
+    min-width: 220px;
+    flex: 1 1 220px;
+  }
+  input[type="search"]:focus{outline: 2px solid var(--amber); outline-offset:1px;}
+  .chip-row{display:flex; gap:6px; flex-wrap:wrap;}
+  .chip{
+    background: var(--navy);
+    border: 1px solid var(--turf-line);
+    color: var(--muted);
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    cursor: pointer;
+    font-family: var(--mono);
+    text-transform: uppercase;
+  }
+  .chip[aria-pressed="true"]{
+    background: var(--amber);
+    color: var(--pitch-dark);
+    border-color: var(--amber);
+    font-weight: 700;
+  }
+  .chip:focus-visible{outline: 2px solid var(--amber); outline-offset: 2px;}
+  select{
+    background: var(--navy);
+    border: 1px solid var(--turf-line);
+    color: var(--chalk);
+    padding: 9px 12px;
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .gw-badge{
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    padding: 8px 12px; border: 1px dashed var(--turf-line); border-radius: 8px;
+  }
+  .gw-badge.upcoming{ color: var(--amber-glow); border-color: var(--amber); }
+
+  .layout{
+    display:grid;
+    grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr);
+    gap: 0;
+    align-items: start;
+  }
+  @media (max-width: 860px){
+    .layout{ grid-template-columns: 1fr; }
+  }
+
+  .list-pane{
+    border-right: 1px solid var(--turf-line);
+    max-height: calc(100vh - 230px);
+    overflow-y: auto;
+  }
+  @media (max-width: 860px){ .list-pane{ max-height: 420px; border-right:none; border-bottom:1px solid var(--turf-line);} }
+
+  .list-head{
+    display:grid;
+    grid-template-columns: 1fr 70px 70px;
+    gap: 8px;
+    padding: 10px 20px;
+    font-family: var(--mono);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--turf-line);
+    position: sticky; top:0;
+    background: var(--pitch);
+  }
+  .row{
+    display:grid;
+    grid-template-columns: 1fr 70px 70px;
+    gap: 8px;
+    align-items:center;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-bottom: 1px solid rgba(63,99,85,0.35);
+    transition: background 120ms ease;
+  }
+  .row:hover, .row:focus-visible{ background: rgba(228,179,67,0.08); }
+  .row.active{ background: rgba(228,179,67,0.16); border-left: 3px solid var(--amber); padding-left:17px;}
+  .row-name{ font-weight:600; font-size:14px; }
+  .row-sub{ font-size:11.5px; color: var(--muted); font-family: var(--mono); }
+  .pos-badge{
+    display:inline-block;
+    width: 30px; text-align:center;
+    font-family: var(--mono); font-size: 10px; font-weight:700;
+    padding: 2px 0; border-radius: 4px; margin-right:6px;
+    color: var(--pitch-dark);
+  }
+  .pos-GK{background:var(--pos-gk);}
+  .pos-DEF{background:var(--pos-def); color:var(--chalk);}
+  .pos-MID{background:var(--pos-mid); color:var(--chalk);}
+  .pos-FWD{background:var(--pos-fwd); color:var(--chalk);}
+  .num{ font-family: var(--mono); text-align:right; font-size: 13px;}
+  .num.pts{color:var(--amber-glow); font-weight:700;}
+
+  .detail-pane{ padding: 24px; }
+  .scoreboard{
+    background: linear-gradient(180deg, var(--navy), var(--pitch-dark));
+    border: 1px solid var(--turf-line);
+    border-radius: 14px;
+    padding: 22px 24px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  .sb-top{ display:flex; justify-content:space-between; align-items:flex-start; gap: 10px; flex-wrap:wrap;}
+  .sb-player{ font-family: var(--display); text-transform:uppercase; font-size: clamp(22px,3vw,30px); letter-spacing:0.5px; }
+  .sb-fixture{ font-family: var(--mono); font-size: 13px; color: var(--muted); margin-top:4px;}
+  .sb-fixture .vs{ color: var(--amber); margin: 0 6px; }
+  .sb-fixture .home-tag{ color: var(--pos-mid); }
+  .sb-fixture .away-tag{ color: var(--pos-fwd); }
+
+  .digit-row{ display:flex; gap: 18px; margin-top: 20px; flex-wrap:wrap; }
+  .digit-box{
+    background: #06140F;
+    border: 1px solid var(--turf-line);
+    border-radius: 8px;
+    padding: 14px 20px;
+    min-width: 140px;
+  }
+  .digit-label{ font-family: var(--mono); font-size: 10px; letter-spacing:1.5px; color: var(--muted); text-transform:uppercase; }
+  .digit-value{
+    font-family: var(--mono); font-size: 40px; font-weight:700;
+    color: var(--amber-glow);
+    text-shadow: 0 0 18px rgba(247,215,122,0.35);
+    line-height:1.15;
+  }
+  .digit-value.small{ font-size: 30px; color: var(--chalk); text-shadow:none; }
+
+  .why{ margin-top: 22px; }
+  .why-title{
+    font-family: var(--mono); font-size: 12px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 10px;
+  }
+  .factor{
+    display:flex; align-items:center; gap:10px;
+    padding: 9px 0; border-bottom: 1px dashed rgba(185,196,190,0.25);
+    font-size: 13.5px;
+  }
+  .factor:last-child{border-bottom:none;}
+  .factor-index{ font-family: var(--mono); color: var(--amber); font-size: 12px; width: 18px; }
+
+  .context-line{
+    margin-top: 18px; font-size: 12.5px; color: var(--muted); line-height:1.6;
+  }
+  .context-line b{ color: var(--chalk); }
+
+  .method-note{
+    padding: 22px 24px 0 24px;
+    font-size: 12.5px; color: var(--muted); line-height: 1.7; max-width: 620px;
+  }
+  .empty, .loading, .error-box{ padding: 40px 24px; color: var(--muted); font-size: 13px; }
+  .error-box{ color: var(--pos-fwd); }
+
+  ::-webkit-scrollbar{ width: 8px; }
+  ::-webkit-scrollbar-thumb{ background: var(--turf-line); border-radius: 8px; }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="eyebrow">Premier League &middot; Machine Learning Prediction</div>
+    <h1>Next-Match Performance Predictor</h1>
+    <div class="subhead">Predicted performance (Bonus Points System score) and fantasy points, generated live
+      from your trained models. Pick any season and gameweek below &mdash; including ones further ahead than
+      the very next fixture.</div>
+  </div>
+
+  <div class="controls">
+    <select id="seasonSelect" aria-label="Season"></select>
+    <select id="gwSelect" aria-label="Gameweek"></select>
+    <span class="gw-badge" id="gwBadge"></span>
+    <input type="search" id="search" placeholder="Search player or club…" aria-label="Search player or club" />
+    <div class="chip-row" id="posChips">
+      <button class="chip" data-pos="ALL" aria-pressed="true">All</button>
+      <button class="chip" data-pos="GK" aria-pressed="false">GK</button>
+      <button class="chip" data-pos="DEF" aria-pressed="false">DEF</button>
+      <button class="chip" data-pos="MID" aria-pressed="false">MID</button>
+      <button class="chip" data-pos="FWD" aria-pressed="false">FWD</button>
+    </div>
+    <select id="sortSelect" aria-label="Sort players by">
+      <option value="fp">Sort: Predicted fantasy points</option>
+      <option value="bps">Sort: Predicted performance (BPS)</option>
+      <option value="name">Sort: Name (A&ndash;Z)</option>
+    </select>
+  </div>
+
+  <div class="layout">
+    <div class="list-pane">
+      <div class="list-head"><span>Player / Fixture</span><span style="text-align:right">BPS</span><span style="text-align:right">Pts</span></div>
+      <div id="list"><div class="loading">Loading…</div></div>
+    </div>
+    <div class="detail-pane">
+      <div id="detail"></div>
+      <div class="method-note">
+        <b style="color:var(--chalk)">How to read this:</b> predicted performance is the model's estimate of the
+        player's <b>Bonus Points System (BPS)</b> score &mdash; an official, position-agnostic composite of match
+        involvement. Predicted fantasy points is the model's estimate of official FPL points for the match. Both
+        are built only from information available before kickoff: recent player form, the player's team's recent
+        goals for/against, and the upcoming opponent's recent attacking/defensive form and squad strength.
+      </div>
+    </div>
+  </div>
+
+<script>
+let DATA = [];
+let state = { query: "", pos: "ALL", sort: "fp", selected: null };
+
+async function loadMeta(){
+  const res = await fetch("/api/meta");
+  const data = await res.json();
+  if(data.error){ showError(data.error); return; }
+
+  const seasonSelect = document.getElementById("seasonSelect");
+  seasonSelect.innerHTML = data.seasons.map(s =>
+    `<option value="${s}" ${s === data.current_season ? "selected" : ""}>${s}</option>`).join("");
+
+  populateGameweeks(data.current_season, data.gameweeks);
+
+  seasonSelect.addEventListener("change", async () => {
+    const season = seasonSelect.value;
+    const res2 = await fetch(`/api/meta?season=${encodeURIComponent(season)}`);
+    const d2 = await res2.json();
+    if(d2.error){ showError(d2.error); return; }
+    populateGameweeks(season, d2.gameweeks);
+    loadPredictions();
+  });
+}
+
+function populateGameweeks(season, gameweeks){
+  const gwSelect = document.getElementById("gwSelect");
+  const nextUnplayed = gameweeks.find(g => !g.finished);
+  gwSelect.innerHTML = gameweeks.map(g =>
+    `<option value="${g.gameweek}" ${nextUnplayed && g.gameweek === nextUnplayed.gameweek ? "selected" : ""}>
+      GW${g.gameweek}${g.finished ? " (played)" : ""}
+    </option>`).join("");
+  gwSelect.onchange = () => loadPredictions();
+  loadPredictions();
+}
+
+function showError(msg){
+  document.getElementById("list").innerHTML = `<div class="error-box">${msg}</div>`;
+  document.getElementById("detail").innerHTML = "";
+}
+
+async function loadPredictions(){
+  const season = document.getElementById("seasonSelect").value;
+  const gameweek = document.getElementById("gwSelect").value;
+  document.getElementById("list").innerHTML = '<div class="loading">Computing predictions…</div>';
+  document.getElementById("detail").innerHTML = "";
+
+  const res = await fetch(`/api/predictions?season=${encodeURIComponent(season)}&gameweek=${encodeURIComponent(gameweek)}`);
+  const data = await res.json();
+  if(data.error){ showError(data.error); return; }
+
+  DATA = data.players;
+  state.selected = null;
+
+  const badge = document.getElementById("gwBadge");
+  badge.textContent = data.meta.already_played ? "Already played" : "Upcoming fixture";
+  badge.className = "gw-badge" + (data.meta.already_played ? "" : " upcoming");
+
+  renderList();
+  renderDetail();
+}
+
+function filteredSorted(){
+  let rows = DATA.filter(r => {
+    const q = state.query.trim().toLowerCase();
+    const matchesQuery = !q || r.name.toLowerCase().includes(q) || r.team.toLowerCase().includes(q) || r.opponent.toLowerCase().includes(q);
+    const matchesPos = state.pos === "ALL" || r.position === state.pos;
+    return matchesQuery && matchesPos;
+  });
+  if(state.sort === "fp") rows.sort((a,b)=> b.predicted_fantasy_points - a.predicted_fantasy_points);
+  else if(state.sort === "bps") rows.sort((a,b)=> b.predicted_performance_bps - a.predicted_performance_bps);
+  else rows.sort((a,b)=> a.name.localeCompare(b.name));
+  return rows;
+}
+
+function renderList(){
+  const rows = filteredSorted();
+  const listEl = document.getElementById("list");
+  if(rows.length === 0){
+    listEl.innerHTML = '<div class="empty">No players match that search.</div>';
+    return;
+  }
+  if(!state.selected || !rows.find(r => r.name === state.selected)){
+    state.selected = rows[0].name;
+  }
+  listEl.innerHTML = rows.map(r => {
+    const active = r.name === state.selected ? "active" : "";
+    const fixtureTag = r.was_home ? "H" : "A";
+    return `<div class="row ${active}" tabindex="0" role="button" data-name="${encodeURIComponent(r.name)}">
+      <div>
+        <span class="pos-badge pos-${r.position}">${r.position}</span>
+        <span class="row-name">${r.name}</span><br/>
+        <span class="row-sub">${r.team} vs ${r.opponent} (${fixtureTag})</span>
+      </div>
+      <div class="num">${r.predicted_performance_bps.toFixed(1)}</div>
+      <div class="num pts">${r.predicted_fantasy_points.toFixed(1)}</div>
+    </div>`;
+  }).join("");
+
+  listEl.querySelectorAll(".row").forEach(el => {
+    el.addEventListener("click", () => {
+      state.selected = decodeURIComponent(el.getAttribute("data-name"));
+      renderList(); renderDetail();
+    });
+    el.addEventListener("keydown", (e) => {
+      if(e.key === "Enter" || e.key === " "){
+        e.preventDefault();
+        state.selected = decodeURIComponent(el.getAttribute("data-name"));
+        renderList(); renderDetail();
+      }
+    });
+  });
+}
+
+function renderDetail(){
+  const detailEl = document.getElementById("detail");
+  const r = DATA.find(x => x.name === state.selected);
+  if(!r){ detailEl.innerHTML = ""; return; }
+  const homeTag = r.was_home ? `<span class="home-tag">HOME</span>` : `<span class="away-tag">AWAY</span>`;
+  const factors = r.top_factors_readable.map((f,i) => `<div class="factor"><span class="factor-index">0${i+1}</span><span>${f}</span></div>`).join("");
+  detailEl.innerHTML = `
+    <div class="scoreboard">
+      <div class="sb-top">
+        <div>
+          <div class="sb-player">${r.name}</div>
+          <div class="sb-fixture">${r.team} <span class="vs">vs</span> ${r.opponent} &middot; ${homeTag} &middot; ${r.position}</div>
+        </div>
+      </div>
+      <div class="digit-row">
+        <div class="digit-box">
+          <div class="digit-label">Predicted fantasy pts</div>
+          <div class="digit-value">${r.predicted_fantasy_points.toFixed(1)}</div>
+        </div>
+        <div class="digit-box">
+          <div class="digit-label">Predicted performance (BPS)</div>
+          <div class="digit-value small">${r.predicted_performance_bps.toFixed(1)}</div>
+        </div>
+      </div>
+      <div class="context-line">
+        Recent form: averaging <b>${r.recent_minutes_r3.toFixed(0)} min</b> over the last 3 matches and
+        <b>${r.recent_points_r5.toFixed(1)} pts/match</b> over the last 5.
+      </div>
+      <div class="why">
+        <div class="why-title">Top factors behind this prediction</div>
+        ${factors}
+      </div>
+    </div>
+  `;
+}
+
+document.getElementById("search").addEventListener("input", (e) => { state.query = e.target.value; renderList(); });
+document.getElementById("sortSelect").addEventListener("change", (e) => { state.sort = e.target.value; renderList(); });
+document.getElementById("posChips").addEventListener("click", (e) => {
+  const btn = e.target.closest(".chip");
+  if(!btn) return;
+  state.pos = btn.getAttribute("data-pos");
+  document.querySelectorAll("#posChips .chip").forEach(c => c.setAttribute("aria-pressed", c === btn ? "true" : "false"));
+  renderList();
+});
+
+loadMeta();
+</script>
+</body>
+</html>

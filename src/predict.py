@@ -76,6 +76,19 @@ def latest_season():
     return seasons[-1]
 
 
+def list_seasons():
+    data_dir = DATA_RAW_DIR / "data"
+    return sorted(p.name for p in data_dir.iterdir()
+                  if p.is_dir() and p.name[:4].isdigit() and (p / "fixtures.csv").exists())
+
+
+def list_gameweeks(season):
+    """All gameweeks in a season with a played/unplayed flag, for populating a UI selector."""
+    fixtures = pd.read_csv(DATA_RAW_DIR / "data" / season / "fixtures.csv")
+    g = fixtures.groupby("event")["finished"].all().reset_index()
+    return [{"gameweek": int(r["event"]), "finished": bool(r["finished"])} for _, r in g.iterrows()]
+
+
 def next_unplayed_gameweek(fixtures):
     unplayed = fixtures.loc[~fixtures["finished"], "event"]
     if unplayed.empty:
@@ -101,27 +114,23 @@ def build_current_form_snapshots():
     return latest_player, latest_team
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Predict next-match performance & fantasy points.")
-    parser.add_argument("--season", default=None, help="Season folder, e.g. 2026-27. Defaults to the latest available.")
-    parser.add_argument("--gameweek", type=int, default=None,
-                         help="Target gameweek number. Defaults to the next gameweek that hasn't been played yet.")
-    args = parser.parse_args()
+def generate_predictions(season=None, gameweek=None):
+    """Core prediction logic, importable for reuse (CLI, Flask app, notebooks, etc).
 
-    season = args.season or latest_season()
+    Returns (pred_df, meta) where meta describes the resolved season/gameweek
+    and whether that gameweek has already been played.
+    """
+    season = season or latest_season()
     season_dir = DATA_RAW_DIR / "data" / season
     teams = pd.read_csv(season_dir / "teams.csv")
     fixtures = pd.read_csv(season_dir / "fixtures.csv")
     players_raw = pd.read_csv(season_dir / "players_raw.csv")
 
-    gameweek = args.gameweek or next_unplayed_gameweek(fixtures)
+    gameweek = gameweek or next_unplayed_gameweek(fixtures)
     target_fixtures = fixtures[fixtures["event"] == gameweek]
     if target_fixtures.empty:
-        print(f"No fixtures found for gameweek {gameweek} in season {season}.")
-        return 1
+        raise ValueError(f"No fixtures found for gameweek {gameweek} in season {season}.")
     already_played = bool(target_fixtures["finished"].all())
-    print(f"Season: {season} | Target gameweek: {gameweek} "
-          f"({'already played -- showing what the model would have predicted' if already_played else 'upcoming'})")
 
     id2name = dict(zip(teams["id"], teams["name"]))
     strength_map = teams.set_index("id")[
@@ -201,12 +210,30 @@ def main():
         })
 
     pred_df = pd.DataFrame(records).sort_values("predicted_fantasy_points", ascending=False)
-    out_csv = OUTPUTS_DIR / f"predictions_{season}_gw{gameweek}.csv"
-    out_json = OUTPUTS_DIR / f"predictions_{season}_gw{gameweek}.json"
+    meta = {
+        "season": season, "gameweek": int(gameweek), "already_played": already_played,
+        "n_players": len(pred_df), "n_skipped_no_history": skipped_no_history,
+    }
+    return pred_df, meta
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Predict next-match performance & fantasy points.")
+    parser.add_argument("--season", default=None, help="Season folder, e.g. 2026-27. Defaults to the latest available.")
+    parser.add_argument("--gameweek", type=int, default=None,
+                         help="Target gameweek number. Defaults to the next gameweek that hasn't been played yet.")
+    args = parser.parse_args()
+
+    pred_df, meta = generate_predictions(season=args.season, gameweek=args.gameweek)
+    print(f"Season: {meta['season']} | Target gameweek: {meta['gameweek']} "
+          f"({'already played -- showing what the model would have predicted' if meta['already_played'] else 'upcoming'})")
+
+    out_csv = OUTPUTS_DIR / f"predictions_{meta['season']}_gw{meta['gameweek']}.csv"
+    out_json = OUTPUTS_DIR / f"predictions_{meta['season']}_gw{meta['gameweek']}.json"
     pred_df.to_csv(out_csv, index=False)
     pred_df.to_json(out_json, orient="records")
 
-    print(f"Predicted {len(pred_df)} players ({skipped_no_history} skipped -- no history yet, e.g. new signings).")
+    print(f"Predicted {meta['n_players']} players ({meta['n_skipped_no_history']} skipped -- no history yet, e.g. new signings).")
     print(f"Saved: {out_csv}")
     print(f"Saved: {out_json}")
     print(pred_df.head(10)[["name", "team", "opponent", "was_home", "position",
