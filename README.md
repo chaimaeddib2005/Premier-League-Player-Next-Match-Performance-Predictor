@@ -20,7 +20,7 @@ season. Nothing is bundled or frozen in this repo — `fetch_data.py` clones
 ## Setup
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/chaimaeddib2005/Premier-League-Player-Next-Match-Performance-Predictor
 cd pl-predictor
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
